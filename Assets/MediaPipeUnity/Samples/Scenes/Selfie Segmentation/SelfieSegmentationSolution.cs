@@ -7,7 +7,7 @@
 using System.Collections;
 using UnityEngine;
 
-namespace Mediapipe.Unity.SelfieSegmentation
+namespace Mediapipe.Unity.Sample.SelfieSegmentation
 {
   public class SelfieSegmentationSolution : ImageSourceSolution<SelfieSegmentationGraph>
   {
@@ -32,23 +32,19 @@ namespace Mediapipe.Unity.SelfieSegmentation
 
     protected override IEnumerator WaitForNextValue()
     {
-      ImageFrame segmentationMask = null;
+      var task = graphRunner.WaitNextAsync();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out segmentationMask, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out segmentationMask, false));
-      }
-
-      _segmentationMaskAnnotationController.DrawNow(segmentationMask);
+      _segmentationMaskAnnotationController.DrawNow(task.Result);
+      task.Result?.Dispose();
     }
 
-    private void OnSegmentationMaskOutput(object stream, OutputEventArgs<ImageFrame> eventArgs)
+    private void OnSegmentationMaskOutput(object stream, OutputStream<ImageFrame>.OutputEventArgs eventArgs)
     {
-      _segmentationMaskAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get();
+      _segmentationMaskAnnotationController.DrawLater(value);
+      value?.Dispose();
     }
   }
 }

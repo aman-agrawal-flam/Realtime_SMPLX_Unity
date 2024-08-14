@@ -10,9 +10,28 @@ using System.Linq;
 using UnityEngine;
 
 using Google.Protobuf;
+using System.Threading.Tasks;
 
-namespace Mediapipe.Unity.PoseTracking
+namespace Mediapipe.Unity.Sample.PoseTracking
 {
+  public readonly struct PoseTrackingResult
+  {
+    public readonly Detection poseDetection;
+    public readonly NormalizedLandmarkList poseLandmarks;
+    public readonly LandmarkList poseWorldLandmarks;
+    public readonly ImageFrame segmentationMask;
+    public readonly NormalizedRect roiFromLandmarks;
+
+    public PoseTrackingResult(Detection poseDetection, NormalizedLandmarkList poseLandmarks, LandmarkList poseWorldLandmarks, ImageFrame segmentationMask, NormalizedRect roiFromLandmarks)
+    {
+      this.poseDetection = poseDetection;
+      this.poseLandmarks = poseLandmarks;
+      this.poseWorldLandmarks = poseWorldLandmarks;
+      this.segmentationMask = segmentationMask;
+      this.roiFromLandmarks = roiFromLandmarks;
+    }
+  }
+
   public class PoseTrackingGraph : GraphRunner
   {
     public enum ModelComplexity
@@ -41,33 +60,33 @@ namespace Mediapipe.Unity.PoseTracking
       set => _minTrackingConfidence = Mathf.Clamp01(value);
     }
 
-    public event EventHandler<OutputEventArgs<Detection>> OnPoseDetectionOutput
+    public event EventHandler<OutputStream<Detection>.OutputEventArgs> OnPoseDetectionOutput
     {
-      add => _poseDetectionStream.AddListener(value);
+      add => _poseDetectionStream.AddListener(value, timeoutMicrosec);
       remove => _poseDetectionStream.RemoveListener(value);
     }
 
-    public event EventHandler<OutputEventArgs<NormalizedLandmarkList>> OnPoseLandmarksOutput
+    public event EventHandler<OutputStream<NormalizedLandmarkList>.OutputEventArgs> OnPoseLandmarksOutput
     {
-      add => _poseLandmarksStream.AddListener(value);
+      add => _poseLandmarksStream.AddListener(value, timeoutMicrosec);
       remove => _poseLandmarksStream.RemoveListener(value);
     }
 
-    public event EventHandler<OutputEventArgs<LandmarkList>> OnPoseWorldLandmarksOutput
+    public event EventHandler<OutputStream<LandmarkList>.OutputEventArgs> OnPoseWorldLandmarksOutput
     {
-      add => _poseWorldLandmarksStream.AddListener(value);
+      add => _poseWorldLandmarksStream.AddListener(value, timeoutMicrosec);
       remove => _poseWorldLandmarksStream.RemoveListener(value);
     }
 
-    public event EventHandler<OutputEventArgs<ImageFrame>> OnSegmentationMaskOutput
+    public event EventHandler<OutputStream<ImageFrame>.OutputEventArgs> OnSegmentationMaskOutput
     {
-      add => _segmentationMaskStream.AddListener(value);
+      add => _segmentationMaskStream.AddListener(value, timeoutMicrosec);
       remove => _segmentationMaskStream.RemoveListener(value);
     }
 
-    public event EventHandler<OutputEventArgs<NormalizedRect>> OnRoiFromLandmarksOutput
+    public event EventHandler<OutputStream<NormalizedRect>.OutputEventArgs> OnRoiFromLandmarksOutput
     {
-      add => _roiFromLandmarksStream.AddListener(value);
+      add => _roiFromLandmarksStream.AddListener(value, timeoutMicrosec);
       remove => _roiFromLandmarksStream.RemoveListener(value);
     }
 
@@ -78,38 +97,38 @@ namespace Mediapipe.Unity.PoseTracking
     private const string _SegmentationMaskStreamName = "segmentation_mask";
     private const string _RoiFromLandmarksStreamName = "roi_from_landmarks";
 
-    private OutputStream<DetectionPacket, Detection> _poseDetectionStream;
-    private OutputStream<NormalizedLandmarkListPacket, NormalizedLandmarkList> _poseLandmarksStream;
-    private OutputStream<LandmarkListPacket, LandmarkList> _poseWorldLandmarksStream;
-    private OutputStream<ImageFramePacket, ImageFrame> _segmentationMaskStream;
-    private OutputStream<NormalizedRectPacket, NormalizedRect> _roiFromLandmarksStream;
+    private OutputStream<Detection> _poseDetectionStream;
+    private OutputStream<NormalizedLandmarkList> _poseLandmarksStream;
+    private OutputStream<LandmarkList> _poseWorldLandmarksStream;
+    private OutputStream<ImageFrame> _segmentationMaskStream;
+    private OutputStream<NormalizedRect> _roiFromLandmarksStream;
 
     public override void StartRun(ImageSource imageSource)
     {
       if (runningMode.IsSynchronous())
       {
-        _poseDetectionStream.StartPolling().AssertOk();
-        _poseLandmarksStream.StartPolling().AssertOk();
-        _poseWorldLandmarksStream.StartPolling().AssertOk();
-        _segmentationMaskStream.StartPolling().AssertOk();
-        _roiFromLandmarksStream.StartPolling().AssertOk();
+        _poseDetectionStream.StartPolling();
+        _poseLandmarksStream.StartPolling();
+        _poseWorldLandmarksStream.StartPolling();
+        _segmentationMaskStream.StartPolling();
+        _roiFromLandmarksStream.StartPolling();
       }
       StartRun(BuildSidePacket(imageSource));
     }
 
     public override void Stop()
     {
-      _poseDetectionStream?.Close();
-      _poseDetectionStream = null;
-      _poseLandmarksStream?.Close();
-      _poseLandmarksStream = null;
-      _poseWorldLandmarksStream?.Close();
-      _poseWorldLandmarksStream = null;
-      _segmentationMaskStream?.Close();
-      _segmentationMaskStream = null;
-      _roiFromLandmarksStream?.Close();
-      _roiFromLandmarksStream = null;
       base.Stop();
+      _poseDetectionStream?.Dispose();
+      _poseDetectionStream = null;
+      _poseLandmarksStream?.Dispose();
+      _poseLandmarksStream = null;
+      _poseWorldLandmarksStream?.Dispose();
+      _poseWorldLandmarksStream = null;
+      _segmentationMaskStream?.Dispose();
+      _segmentationMaskStream = null;
+      _roiFromLandmarksStream?.Dispose();
+      _roiFromLandmarksStream = null;
     }
 
     public void AddTextureFrameToInputStream(TextureFrame textureFrame)
@@ -117,16 +136,39 @@ namespace Mediapipe.Unity.PoseTracking
       AddTextureFrameToInputStream(_InputStreamName, textureFrame);
     }
 
-    public bool TryGetNext(out Detection poseDetection, out NormalizedLandmarkList poseLandmarks, out LandmarkList poseWorldLandmarks, out ImageFrame segmentationMask, out NormalizedRect roiFromLandmarks, bool allowBlock = true)
+    public async Task<PoseTrackingResult> WaitNextAsync()
     {
-      var currentTimestampMicrosec = GetCurrentTimestampMicrosec();
-      var r1 = TryGetNext(_poseDetectionStream, out poseDetection, allowBlock, currentTimestampMicrosec);
-      var r2 = TryGetNext(_poseLandmarksStream, out poseLandmarks, allowBlock, currentTimestampMicrosec);
-      var r3 = TryGetNext(_poseWorldLandmarksStream, out poseWorldLandmarks, allowBlock, currentTimestampMicrosec);
-      var r4 = TryGetNext(_segmentationMaskStream, out segmentationMask, allowBlock, currentTimestampMicrosec);
-      var r5 = TryGetNext(_roiFromLandmarksStream, out roiFromLandmarks, allowBlock, currentTimestampMicrosec);
+      var results = await WhenAll(
+        _poseDetectionStream.WaitNextAsync(),
+        _poseLandmarksStream.WaitNextAsync(),
+        _poseWorldLandmarksStream.WaitNextAsync(),
+        _segmentationMaskStream.WaitNextAsync(),
+        _roiFromLandmarksStream.WaitNextAsync()
+      );
+      AssertResult(results);
 
-      return r1 || r2 || r3 || r4 || r5;
+      _ = TryGetValue(results.Item1.packet, out var poseDetection, (packet) =>
+      {
+        return packet.Get(Detection.Parser);
+      });
+      _ = TryGetValue(results.Item2.packet, out var poseLandmarks, (packet) =>
+      {
+        return packet.Get(NormalizedLandmarkList.Parser);
+      });
+      _ = TryGetValue(results.Item3.packet, out var poseWorldLandmarks, (packet) =>
+      {
+        return packet.Get(LandmarkList.Parser);
+      });
+      _ = TryGetValue(results.Item4.packet, out var segmentationMask, (packet) =>
+      {
+        return packet.Get();
+      });
+      _ = TryGetValue(results.Item5.packet, out var roiFromLandmarks, (packet) =>
+      {
+        return packet.Get(NormalizedRect.Parser);
+      });
+
+      return new PoseTrackingResult(poseDetection, poseLandmarks, poseWorldLandmarks, segmentationMask, roiFromLandmarks);
     }
 
     protected override IList<WaitForResult> RequestDependentAssets()
@@ -137,35 +179,17 @@ namespace Mediapipe.Unity.PoseTracking
       };
     }
 
-    protected override Status ConfigureCalculatorGraph(CalculatorGraphConfig config)
+    protected override void ConfigureCalculatorGraph(CalculatorGraphConfig config)
     {
-      if (runningMode == RunningMode.NonBlockingSync)
-      {
-        _poseDetectionStream = new OutputStream<DetectionPacket, Detection>(
-            calculatorGraph, _PoseDetectionStreamName, config.AddPacketPresenceCalculator(_PoseDetectionStreamName), timeoutMicrosec);
-        _poseLandmarksStream = new OutputStream<NormalizedLandmarkListPacket, NormalizedLandmarkList>(
-            calculatorGraph, _PoseLandmarksStreamName, config.AddPacketPresenceCalculator(_PoseLandmarksStreamName), timeoutMicrosec);
-        _poseWorldLandmarksStream = new OutputStream<LandmarkListPacket, LandmarkList>(
-            calculatorGraph, _PoseWorldLandmarksStreamName, config.AddPacketPresenceCalculator(_PoseWorldLandmarksStreamName), timeoutMicrosec);
-        _segmentationMaskStream = new OutputStream<ImageFramePacket, ImageFrame>(
-            calculatorGraph, _SegmentationMaskStreamName, config.AddPacketPresenceCalculator(_SegmentationMaskStreamName), timeoutMicrosec);
-        _roiFromLandmarksStream = new OutputStream<NormalizedRectPacket, NormalizedRect>(
-            calculatorGraph, _RoiFromLandmarksStreamName, config.AddPacketPresenceCalculator(_RoiFromLandmarksStreamName), timeoutMicrosec);
-      }
-      else
-      {
-        _poseDetectionStream = new OutputStream<DetectionPacket, Detection>(calculatorGraph, _PoseDetectionStreamName, true, timeoutMicrosec);
-        _poseLandmarksStream = new OutputStream<NormalizedLandmarkListPacket, NormalizedLandmarkList>(calculatorGraph, _PoseLandmarksStreamName, true, timeoutMicrosec);
-        _poseWorldLandmarksStream = new OutputStream<LandmarkListPacket, LandmarkList>(calculatorGraph, _PoseWorldLandmarksStreamName, true, timeoutMicrosec);
-        _segmentationMaskStream = new OutputStream<ImageFramePacket, ImageFrame>(calculatorGraph, _SegmentationMaskStreamName, true, timeoutMicrosec);
-        _roiFromLandmarksStream = new OutputStream<NormalizedRectPacket, NormalizedRect>(calculatorGraph, _RoiFromLandmarksStreamName, true, timeoutMicrosec);
-      }
+      _poseDetectionStream = new OutputStream<Detection>(calculatorGraph, _PoseDetectionStreamName, true);
+      _poseLandmarksStream = new OutputStream<NormalizedLandmarkList>(calculatorGraph, _PoseLandmarksStreamName, true);
+      _poseWorldLandmarksStream = new OutputStream<LandmarkList>(calculatorGraph, _PoseWorldLandmarksStreamName, true);
+      _segmentationMaskStream = new OutputStream<ImageFrame>(calculatorGraph, _SegmentationMaskStreamName, true);
+      _roiFromLandmarksStream = new OutputStream<NormalizedRect>(calculatorGraph, _RoiFromLandmarksStreamName, true);
 
       using (var validatedGraphConfig = new ValidatedGraphConfig())
       {
-        var status = validatedGraphConfig.Initialize(config);
-
-        if (!status.Ok()) { return status; }
+        validatedGraphConfig.Initialize(config);
 
         var extensionRegistry = new ExtensionRegistry() { TensorsToDetectionsCalculatorOptions.Extensions.Ext, ThresholdingCalculatorOptions.Extensions.Ext };
         var cannonicalizedConfig = validatedGraphConfig.Config(extensionRegistry);
@@ -178,7 +202,7 @@ namespace Mediapipe.Unity.PoseTracking
           {
             var options = calculator.Options.GetExtension(TensorsToDetectionsCalculatorOptions.Extensions.Ext);
             options.MinScoreThresh = minDetectionConfidence;
-            Logger.LogInfo(TAG, $"Min Detection Confidence = {minDetectionConfidence}");
+            Debug.Log($"Min Detection Confidence = {minDetectionConfidence}");
           }
         }
 
@@ -188,10 +212,10 @@ namespace Mediapipe.Unity.PoseTracking
           {
             var options = calculator.Options.GetExtension(ThresholdingCalculatorOptions.Extensions.Ext);
             options.Threshold = minTrackingConfidence;
-            Logger.LogInfo(TAG, $"Min Tracking Confidence = {minTrackingConfidence}");
+            Debug.Log($"Min Tracking Confidence = {minTrackingConfidence}");
           }
         }
-        return calculatorGraph.Initialize(cannonicalizedConfig);
+        calculatorGraph.Initialize(cannonicalizedConfig);
       }
     }
 
@@ -206,9 +230,9 @@ namespace Mediapipe.Unity.PoseTracking
       }
     }
 
-    private SidePacket BuildSidePacket(ImageSource imageSource)
+    private PacketMap BuildSidePacket(ImageSource imageSource)
     {
-      var sidePacket = new SidePacket();
+      var sidePacket = new PacketMap();
 
       SetImageTransformationOptions(sidePacket, imageSource);
 
@@ -226,21 +250,21 @@ namespace Mediapipe.Unity.PoseTracking
         outputVerticallyFlipped = !outputVerticallyFlipped;
       }
 
-      sidePacket.Emplace("output_rotation", new IntPacket((int)outputRotation));
-      sidePacket.Emplace("output_horizontally_flipped", new BoolPacket(outputHorizontallyFlipped));
-      sidePacket.Emplace("output_vertically_flipped", new BoolPacket(outputVerticallyFlipped));
+      sidePacket.Emplace("output_rotation", Packet.CreateInt((int)outputRotation));
+      sidePacket.Emplace("output_horizontally_flipped", Packet.CreateBool(outputHorizontallyFlipped));
+      sidePacket.Emplace("output_vertically_flipped", Packet.CreateBool(outputVerticallyFlipped));
 
-      Logger.LogDebug($"output_rotation = {outputRotation}, output_horizontally_flipped = {outputHorizontallyFlipped}, output_vertically_flipped = {outputVerticallyFlipped}");
+      Debug.Log($"output_rotation = {outputRotation}, output_horizontally_flipped = {outputHorizontallyFlipped}, output_vertically_flipped = {outputVerticallyFlipped}");
 
-      sidePacket.Emplace("model_complexity", new IntPacket((int)modelComplexity));
-      sidePacket.Emplace("smooth_landmarks", new BoolPacket(smoothLandmarks));
-      sidePacket.Emplace("enable_segmentation", new BoolPacket(enableSegmentation));
-      sidePacket.Emplace("smooth_segmentation", new BoolPacket(smoothSegmentation));
+      sidePacket.Emplace("model_complexity", Packet.CreateInt((int)modelComplexity));
+      sidePacket.Emplace("smooth_landmarks", Packet.CreateBool(smoothLandmarks));
+      sidePacket.Emplace("enable_segmentation", Packet.CreateBool(enableSegmentation));
+      sidePacket.Emplace("smooth_segmentation", Packet.CreateBool(smoothSegmentation));
 
-      Logger.LogInfo(TAG, $"Model Complexity = {modelComplexity}");
-      Logger.LogInfo(TAG, $"Smooth Landmarks = {smoothLandmarks}");
-      Logger.LogInfo(TAG, $"Enable Segmentation = {enableSegmentation}");
-      Logger.LogInfo(TAG, $"Smooth Segmentation = {smoothSegmentation}");
+      Debug.Log($"Model Complexity = {modelComplexity}");
+      Debug.Log($"Smooth Landmarks = {smoothLandmarks}");
+      Debug.Log($"Enable Segmentation = {enableSegmentation}");
+      Debug.Log($"Smooth Segmentation = {smoothSegmentation}");
 
       return sidePacket;
     }

@@ -8,7 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Mediapipe.Unity.HandTracking
+namespace Mediapipe.Unity.Sample.HandTracking
 {
   public class HandTrackingSolution : ImageSourceSolution<HandTrackingGraph>
   {
@@ -67,52 +67,50 @@ namespace Mediapipe.Unity.HandTracking
 
     protected override IEnumerator WaitForNextValue()
     {
-      List<Detection> palmDetections = null;
-      List<NormalizedRect> handRectsFromPalmDetections = null;
-      List<NormalizedLandmarkList> handLandmarks = null;
-      List<LandmarkList> handWorldLandmarks = null;
-      List<NormalizedRect> handRectsFromLandmarks = null;
-      List<ClassificationList> handedness = null;
+      var task = graphRunner.WaitNext();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out palmDetections, out handRectsFromPalmDetections, out handLandmarks, out handWorldLandmarks, out handRectsFromLandmarks, out handedness, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out palmDetections, out handRectsFromPalmDetections, out handLandmarks, out handWorldLandmarks, out handRectsFromLandmarks, out handedness, false));
-      }
-
-      _palmDetectionsAnnotationController.DrawNow(palmDetections);
-      _handRectsFromPalmDetectionsAnnotationController.DrawNow(handRectsFromPalmDetections);
-      _handLandmarksAnnotationController.DrawNow(handLandmarks, handedness);
+      var result = task.Result;
+      _palmDetectionsAnnotationController.DrawNow(result.palmDetections);
+      _handRectsFromPalmDetectionsAnnotationController.DrawNow(result.handRectsFromPalmDetections);
+      _handLandmarksAnnotationController.DrawNow(result.handLandmarks, result.handedness);
       // TODO: render HandWorldLandmarks annotations
-      _handRectsFromLandmarksAnnotationController.DrawNow(handRectsFromLandmarks);
+      _handRectsFromLandmarksAnnotationController.DrawNow(result.handRectsFromLandmarks);
     }
 
-    private void OnPalmDetectionsOutput(object stream, OutputEventArgs<List<Detection>> eventArgs)
+    private void OnPalmDetectionsOutput(object stream, OutputStream<List<Detection>>.OutputEventArgs eventArgs)
     {
-      _palmDetectionsAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(Detection.Parser);
+      _palmDetectionsAnnotationController.DrawLater(value);
     }
 
-    private void OnHandRectsFromPalmDetectionsOutput(object stream, OutputEventArgs<List<NormalizedRect>> eventArgs)
+    private void OnHandRectsFromPalmDetectionsOutput(object stream, OutputStream<List<NormalizedRect>>.OutputEventArgs eventArgs)
     {
-      _handRectsFromPalmDetectionsAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedRect.Parser);
+      _handRectsFromPalmDetectionsAnnotationController.DrawLater(value);
     }
 
-    private void OnHandLandmarksOutput(object stream, OutputEventArgs<List<NormalizedLandmarkList>> eventArgs)
+    private void OnHandLandmarksOutput(object stream, OutputStream<List<NormalizedLandmarkList>>.OutputEventArgs eventArgs)
     {
-      _handLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedLandmarkList.Parser);
+      _handLandmarksAnnotationController.DrawLater(value);
     }
 
-    private void OnHandRectsFromLandmarksOutput(object stream, OutputEventArgs<List<NormalizedRect>> eventArgs)
+    private void OnHandRectsFromLandmarksOutput(object stream, OutputStream<List<NormalizedRect>>.OutputEventArgs eventArgs)
     {
-      _handRectsFromLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedRect.Parser);
+      _handRectsFromLandmarksAnnotationController.DrawLater(value);
     }
 
-    private void OnHandednessOutput(object stream, OutputEventArgs<List<ClassificationList>> eventArgs)
+    private void OnHandednessOutput(object stream, OutputStream<List<ClassificationList>>.OutputEventArgs eventArgs)
     {
-      _handLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(ClassificationList.Parser);
+      _handLandmarksAnnotationController.DrawLater(value);
     }
   }
 }

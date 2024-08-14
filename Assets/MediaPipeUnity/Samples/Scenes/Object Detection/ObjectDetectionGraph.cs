@@ -6,36 +6,37 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
-namespace Mediapipe.Unity.ObjectDetection
+namespace Mediapipe.Unity.Sample.ObjectDetection
 {
   public class ObjectDetectionGraph : GraphRunner
   {
-    public event EventHandler<OutputEventArgs<List<Detection>>> OnOutputDetectionsOutput
+    public event EventHandler<OutputStream<List<Detection>>.OutputEventArgs> OnOutputDetectionsOutput
     {
-      add => _outputDetectionsStream.AddListener(value);
+      add => _outputDetectionsStream.AddListener(value, timeoutMicrosec);
       remove => _outputDetectionsStream.RemoveListener(value);
     }
 
     private const string _InputStreamName = "input_video";
 
     private const string _OutputDetectionsStreamName = "output_detections";
-    private OutputStream<DetectionVectorPacket, List<Detection>> _outputDetectionsStream;
+    private OutputStream<List<Detection>> _outputDetectionsStream;
 
     public override void StartRun(ImageSource imageSource)
     {
       if (runningMode.IsSynchronous())
       {
-        _outputDetectionsStream.StartPolling().AssertOk();
+        _outputDetectionsStream.StartPolling();
       }
       StartRun(BuildSidePacket(imageSource));
     }
 
     public override void Stop()
     {
-      _outputDetectionsStream?.Close();
-      _outputDetectionsStream = null;
       base.Stop();
+      _outputDetectionsStream?.Dispose();
+      _outputDetectionsStream = null;
     }
 
     public void AddTextureFrameToInputStream(TextureFrame textureFrame)
@@ -43,9 +44,17 @@ namespace Mediapipe.Unity.ObjectDetection
       AddTextureFrameToInputStream(_InputStreamName, textureFrame);
     }
 
-    public bool TryGetNext(out List<Detection> outputDetections, bool allowBlock = true)
+    public async Task<List<Detection>> WaitNextAsync()
     {
-      return TryGetNext(_outputDetectionsStream, out outputDetections, allowBlock, GetCurrentTimestampMicrosec());
+      var result = await _outputDetectionsStream.WaitNextAsync();
+      AssertResult(result);
+
+      _ = TryGetValue(result.packet, out var outputDetections, (packet) =>
+      {
+        return packet.Get(Detection.Parser);
+      });
+
+      return outputDetections;
     }
 
     protected override IList<WaitForResult> RequestDependentAssets()
@@ -56,23 +65,15 @@ namespace Mediapipe.Unity.ObjectDetection
       };
     }
 
-    protected override Status ConfigureCalculatorGraph(CalculatorGraphConfig config)
+    protected override void ConfigureCalculatorGraph(CalculatorGraphConfig config)
     {
-      if (runningMode == RunningMode.NonBlockingSync)
-      {
-        _outputDetectionsStream = new OutputStream<DetectionVectorPacket, List<Detection>>(
-            calculatorGraph, _OutputDetectionsStreamName, config.AddPacketPresenceCalculator(_OutputDetectionsStreamName), timeoutMicrosec);
-      }
-      else
-      {
-        _outputDetectionsStream = new OutputStream<DetectionVectorPacket, List<Detection>>(calculatorGraph, _OutputDetectionsStreamName, true, timeoutMicrosec);
-      }
-      return calculatorGraph.Initialize(config);
+      _outputDetectionsStream = new OutputStream<List<Detection>>(calculatorGraph, _OutputDetectionsStreamName, true);
+      calculatorGraph.Initialize(config);
     }
 
-    private SidePacket BuildSidePacket(ImageSource imageSource)
+    private PacketMap BuildSidePacket(ImageSource imageSource)
     {
-      var sidePacket = new SidePacket();
+      var sidePacket = new PacketMap();
       SetImageTransformationOptions(sidePacket, imageSource);
       return sidePacket;
     }

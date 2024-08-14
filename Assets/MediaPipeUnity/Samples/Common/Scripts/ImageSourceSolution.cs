@@ -6,8 +6,9 @@
 
 using System.Collections;
 using UnityEngine;
+using System;
 
-namespace Mediapipe.Unity
+namespace Mediapipe.Unity.Sample
 {
   public abstract class ImageSourceSolution<T> : Solution where T : GraphRunner
   {
@@ -64,7 +65,7 @@ namespace Mediapipe.Unity
 
       if (!imageSource.isPrepared)
       {
-        Logger.LogError(TAG, "Failed to start ImageSource, exiting...");
+        Debug.LogError("Failed to start ImageSource, exiting...");
         yield break;
       }
 
@@ -76,7 +77,7 @@ namespace Mediapipe.Unity
       yield return graphInitRequest;
       if (graphInitRequest.isError)
       {
-        Logger.LogError(TAG, graphInitRequest.error);
+        Debug.LogError(graphInitRequest.error);
         yield break;
       }
 

@@ -8,7 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Mediapipe.Unity.ObjectDetection
+namespace Mediapipe.Unity.Sample.ObjectDetection
 {
   public class ObjectDetectionSolution : ImageSourceSolution<ObjectDetectionGraph>
   {
@@ -31,23 +31,17 @@ namespace Mediapipe.Unity.ObjectDetection
 
     protected override IEnumerator WaitForNextValue()
     {
-      List<Detection> outputDetections = null;
+      var task = graphRunner.WaitNextAsync();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out outputDetections, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out outputDetections, false));
-      }
-
-      _outputDetectionsAnnotationController.DrawNow(outputDetections);
+      _outputDetectionsAnnotationController.DrawNow(task.Result);
     }
 
-    private void OnOutputDetectionsOutput(object stream, OutputEventArgs<List<Detection>> eventArgs)
+    private void OnOutputDetectionsOutput(object stream, OutputStream<List<Detection>>.OutputEventArgs eventArgs)
     {
-      _outputDetectionsAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(Detection.Parser);
+      _outputDetectionsAnnotationController.DrawLater(value);
     }
   }
 }

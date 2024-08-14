@@ -7,7 +7,7 @@
 using System.Collections;
 using UnityEngine;
 
-namespace Mediapipe.Unity.PoseTracking
+namespace Mediapipe.Unity.Sample.PoseTracking
 {
   public class PoseTrackingSolution : ImageSourceSolution<PoseTrackingGraph>
   {
@@ -87,51 +87,53 @@ namespace Mediapipe.Unity.PoseTracking
 
     protected override IEnumerator WaitForNextValue()
     {
-      Detection poseDetection = null;
-      NormalizedLandmarkList poseLandmarks = null;
-      LandmarkList poseWorldLandmarks = null;
-      ImageFrame segmentationMask = null;
-      NormalizedRect roiFromLandmarks = null;
+      var task = graphRunner.WaitNextAsync();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out poseDetection, out poseLandmarks, out poseWorldLandmarks, out segmentationMask, out roiFromLandmarks, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out poseDetection, out poseLandmarks, out poseWorldLandmarks, out segmentationMask, out roiFromLandmarks, false));
-      }
+      var result = task.Result;
+      _poseDetectionAnnotationController.DrawNow(result.poseDetection);
+      _poseLandmarksAnnotationController.DrawNow(result.poseLandmarks);
+      _poseWorldLandmarksAnnotationController.DrawNow(result.poseWorldLandmarks);
+      _segmentationMaskAnnotationController.DrawNow(result.segmentationMask);
+      _roiFromLandmarksAnnotationController.DrawNow(result.roiFromLandmarks);
 
-      _poseDetectionAnnotationController.DrawNow(poseDetection);
-      _poseLandmarksAnnotationController.DrawNow(poseLandmarks);
-      _poseWorldLandmarksAnnotationController.DrawNow(poseWorldLandmarks);
-      _segmentationMaskAnnotationController.DrawNow(segmentationMask);
-      _roiFromLandmarksAnnotationController.DrawNow(roiFromLandmarks);
+      result.segmentationMask?.Dispose();
     }
 
-    private void OnPoseDetectionOutput(object stream, OutputEventArgs<Detection> eventArgs)
+    private void OnPoseDetectionOutput(object stream, OutputStream<Detection>.OutputEventArgs eventArgs)
     {
-      _poseDetectionAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(Detection.Parser);
+      _poseDetectionAnnotationController.DrawLater(value);
     }
 
-    private void OnPoseLandmarksOutput(object stream, OutputEventArgs<NormalizedLandmarkList> eventArgs)
+    private void OnPoseLandmarksOutput(object stream, OutputStream<NormalizedLandmarkList>.OutputEventArgs eventArgs)
     {
-      _poseLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedLandmarkList.Parser);
+      _poseLandmarksAnnotationController.DrawLater(value);
     }
 
-    private void OnPoseWorldLandmarksOutput(object stream, OutputEventArgs<LandmarkList> eventArgs)
+    private void OnPoseWorldLandmarksOutput(object stream, OutputStream<LandmarkList>.OutputEventArgs eventArgs)
     {
-      _poseWorldLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(LandmarkList.Parser);
+      _poseWorldLandmarksAnnotationController.DrawLater(value);
     }
 
-    private void OnSegmentationMaskOutput(object stream, OutputEventArgs<ImageFrame> eventArgs)
+    private void OnSegmentationMaskOutput(object stream, OutputStream<ImageFrame>.OutputEventArgs eventArgs)
     {
-      _segmentationMaskAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get();
+      _segmentationMaskAnnotationController.DrawLater(value);
+      value?.Dispose();
     }
 
-    private void OnRoiFromLandmarksOutput(object stream, OutputEventArgs<NormalizedRect> eventArgs)
+    private void OnRoiFromLandmarksOutput(object stream, OutputStream<NormalizedRect>.OutputEventArgs eventArgs)
     {
-      _roiFromLandmarksAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedRect.Parser);
+      _roiFromLandmarksAnnotationController.DrawLater(value);
     }
   }
 }

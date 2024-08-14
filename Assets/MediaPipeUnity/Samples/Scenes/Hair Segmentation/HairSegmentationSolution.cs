@@ -7,7 +7,7 @@
 using System.Collections;
 using UnityEngine;
 
-namespace Mediapipe.Unity.HairSegmentation
+namespace Mediapipe.Unity.Sample.HairSegmentation
 {
   public class HairSegmentationSolution : ImageSourceSolution<HairSegmentationGraph>
   {
@@ -31,23 +31,19 @@ namespace Mediapipe.Unity.HairSegmentation
 
     protected override IEnumerator WaitForNextValue()
     {
-      ImageFrame hairMask = null;
+      var task = graphRunner.WaitNext();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out hairMask, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out hairMask, false));
-      }
-
-      _hairMaskAnnotationController.DrawNow(hairMask);
+      _hairMaskAnnotationController.DrawNow(task.Result);
+      task.Result?.Dispose();
     }
 
-    private void OnHairMaskOutput(object stream, OutputEventArgs<ImageFrame> eventArgs)
+    private void OnHairMaskOutput(object stream, OutputStream<ImageFrame>.OutputEventArgs eventArgs)
     {
-      _hairMaskAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get();
+      _hairMaskAnnotationController.DrawLater(value);
+      value?.Dispose();
     }
   }
 }

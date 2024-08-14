@@ -6,26 +6,28 @@
 
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using UnityEngine;
 
-namespace Mediapipe.Unity.SelfieSegmentation
+namespace Mediapipe.Unity.Sample.SelfieSegmentation
 {
   public class SelfieSegmentationGraph : GraphRunner
   {
-    public event EventHandler<OutputEventArgs<ImageFrame>> OnSegmentationMaskOutput
+    public event EventHandler<OutputStream<ImageFrame>.OutputEventArgs> OnSegmentationMaskOutput
     {
-      add => _segmentationMaskStream.AddListener(value);
+      add => _segmentationMaskStream.AddListener(value, timeoutMicrosec);
       remove => _segmentationMaskStream.RemoveListener(value);
     }
 
     private const string _InputStreamName = "input_video";
     private const string _SegmentationMaskStreamName = "segmentation_mask";
-    private OutputStream<ImageFramePacket, ImageFrame> _segmentationMaskStream;
+    private OutputStream<ImageFrame> _segmentationMaskStream;
 
     public override void StartRun(ImageSource imageSource)
     {
       if (runningMode.IsSynchronous())
       {
-        _segmentationMaskStream.StartPolling().AssertOk();
+        _segmentationMaskStream.StartPolling();
       }
       StartRun(BuildSidePacket(imageSource));
     }
@@ -33,9 +35,9 @@ namespace Mediapipe.Unity.SelfieSegmentation
 
     public override void Stop()
     {
-      _segmentationMaskStream?.Close();
-      _segmentationMaskStream = null;
       base.Stop();
+      _segmentationMaskStream?.Dispose();
+      _segmentationMaskStream = null;
     }
 
     public void AddTextureFrameToInputStream(TextureFrame textureFrame)
@@ -43,9 +45,16 @@ namespace Mediapipe.Unity.SelfieSegmentation
       AddTextureFrameToInputStream(_InputStreamName, textureFrame);
     }
 
-    public bool TryGetNext(out ImageFrame segmentationMask, bool allowBlock = true)
+    public async Task<ImageFrame> WaitNextAsync()
     {
-      return TryGetNext(_segmentationMaskStream, out segmentationMask, allowBlock, GetCurrentTimestampMicrosec());
+      var result = await _segmentationMaskStream.WaitNextAsync();
+      AssertResult(result);
+
+      _ = TryGetValue(result.packet, out var segmentationMask, (packet) =>
+      {
+        return packet.Get();
+      });
+      return segmentationMask;
     }
 
     protected override IList<WaitForResult> RequestDependentAssets()
@@ -55,22 +64,15 @@ namespace Mediapipe.Unity.SelfieSegmentation
       };
     }
 
-    protected override Status ConfigureCalculatorGraph(CalculatorGraphConfig config)
+    protected override void ConfigureCalculatorGraph(CalculatorGraphConfig config)
     {
-      if (runningMode == RunningMode.NonBlockingSync)
-      {
-        _segmentationMaskStream = new OutputStream<ImageFramePacket, ImageFrame>(calculatorGraph, _SegmentationMaskStreamName, config.AddPacketPresenceCalculator(_SegmentationMaskStreamName), timeoutMicrosec);
-      }
-      else
-      {
-        _segmentationMaskStream = new OutputStream<ImageFramePacket, ImageFrame>(calculatorGraph, _SegmentationMaskStreamName, true, timeoutMicrosec);
-      }
-      return calculatorGraph.Initialize(config);
+      _segmentationMaskStream = new OutputStream<ImageFrame>(calculatorGraph, _SegmentationMaskStreamName, true);
+      calculatorGraph.Initialize(config);
     }
 
-    private SidePacket BuildSidePacket(ImageSource imageSource)
+    private PacketMap BuildSidePacket(ImageSource imageSource)
     {
-      var sidePacket = new SidePacket();
+      var sidePacket = new PacketMap();
 
       SetImageTransformationOptions(sidePacket, imageSource);
 
@@ -88,11 +90,11 @@ namespace Mediapipe.Unity.SelfieSegmentation
         outputVerticallyFlipped = !outputVerticallyFlipped;
       }
 
-      sidePacket.Emplace("output_rotation", new IntPacket((int)outputRotation));
-      sidePacket.Emplace("output_horizontally_flipped", new BoolPacket(outputHorizontallyFlipped));
-      sidePacket.Emplace("output_vertically_flipped", new BoolPacket(outputVerticallyFlipped));
+      sidePacket.Emplace("output_rotation", Packet.CreateInt((int)outputRotation));
+      sidePacket.Emplace("output_horizontally_flipped", Packet.CreateBool(outputHorizontallyFlipped));
+      sidePacket.Emplace("output_vertically_flipped", Packet.CreateBool(outputVerticallyFlipped));
 
-      Logger.LogDebug($"output_rotation = {outputRotation}, output_horizontally_flipped = {outputHorizontallyFlipped}, output_vertically_flipped = {outputVerticallyFlipped}");
+      Debug.Log($"output_rotation = {outputRotation}, output_horizontally_flipped = {outputHorizontallyFlipped}, output_vertically_flipped = {outputVerticallyFlipped}");
       return sidePacket;
     }
   }

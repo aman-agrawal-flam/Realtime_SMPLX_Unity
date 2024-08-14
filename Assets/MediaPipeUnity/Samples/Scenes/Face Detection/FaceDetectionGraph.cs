@@ -7,11 +7,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using UnityEngine;
 
-using Google.Protobuf;
-
-namespace Mediapipe.Unity.FaceDetection
+namespace Mediapipe.Unity.Sample.FaceDetection
 {
   public class FaceDetectionGraph : GraphRunner
   {
@@ -29,30 +28,30 @@ namespace Mediapipe.Unity.FaceDetection
       set => _minDetectionConfidence = Mathf.Clamp01(value);
     }
 
-    public event EventHandler<OutputEventArgs<List<Detection>>> OnFaceDetectionsOutput
+    public event EventHandler<OutputStream<List<Detection>>.OutputEventArgs> OnFaceDetectionsOutput
     {
-      add => _faceDetectionsStream.AddListener(value);
+      add => _faceDetectionsStream.AddListener(value, timeoutMicrosec);
       remove => _faceDetectionsStream.RemoveListener(value);
     }
 
     private const string _InputStreamName = "input_video";
     private const string _FaceDetectionsStreamName = "face_detections";
-    private OutputStream<DetectionVectorPacket, List<Detection>> _faceDetectionsStream;
+    private OutputStream<List<Detection>> _faceDetectionsStream;
 
     public override void StartRun(ImageSource imageSource)
     {
       if (runningMode.IsSynchronous())
       {
-        _faceDetectionsStream.StartPolling().AssertOk();
+        _faceDetectionsStream.StartPolling();
       }
       StartRun(BuildSidePacket(imageSource));
     }
 
     public override void Stop()
     {
-      _faceDetectionsStream?.Close();
-      _faceDetectionsStream = null;
       base.Stop();
+      _faceDetectionsStream?.Dispose();
+      _faceDetectionsStream = null;
     }
 
     public void AddTextureFrameToInputStream(TextureFrame textureFrame)
@@ -60,9 +59,17 @@ namespace Mediapipe.Unity.FaceDetection
       AddTextureFrameToInputStream(_InputStreamName, textureFrame);
     }
 
-    public bool TryGetNext(out List<Detection> faceDetections, bool allowBlock = true)
+    public async Task<List<Detection>> WaitNext()
     {
-      return TryGetNext(_faceDetectionsStream, out faceDetections, allowBlock, GetCurrentTimestampMicrosec());
+      var result = await _faceDetectionsStream.WaitNextAsync();
+      AssertResult(result);
+
+      _ = TryGetValue(result.packet, out var faceDetections, (packet) =>
+      {
+        return packet.Get(Detection.Parser);
+      });
+
+      return faceDetections;
     }
 
     protected override IList<WaitForResult> RequestDependentAssets()
@@ -73,17 +80,10 @@ namespace Mediapipe.Unity.FaceDetection
       };
     }
 
-    protected override Status ConfigureCalculatorGraph(CalculatorGraphConfig config)
+    protected override void ConfigureCalculatorGraph(CalculatorGraphConfig config)
     {
-      if (runningMode == RunningMode.NonBlockingSync)
-      {
-        _faceDetectionsStream = new OutputStream<DetectionVectorPacket, List<Detection>>(
-            calculatorGraph, _FaceDetectionsStreamName, config.AddPacketPresenceCalculator(_FaceDetectionsStreamName), timeoutMicrosec);
-      }
-      else
-      {
-        _faceDetectionsStream = new OutputStream<DetectionVectorPacket, List<Detection>>(calculatorGraph, _FaceDetectionsStreamName, true, timeoutMicrosec);
-      }
+      _faceDetectionsStream = new OutputStream<List<Detection>>(calculatorGraph, _FaceDetectionsStreamName, true);
+      Debug.Log(timeoutMicrosec);
 
       var faceDetectionCalculators = config.Node.Where((node) => node.Calculator.StartsWith("FaceDetection")).ToList();
       foreach (var calculator in faceDetectionCalculators)
@@ -91,27 +91,24 @@ namespace Mediapipe.Unity.FaceDetection
         var calculatorOptions = new CalculatorOptions();
         calculatorOptions.SetExtension(FaceDetectionOptions.Extensions.Ext, new FaceDetectionOptions { MinScoreThresh = minDetectionConfidence });
         calculator.Options = calculatorOptions;
-        Logger.LogInfo(TAG, $"Min Detection Confidence ({calculator.Calculator}) = {minDetectionConfidence}");
+        Debug.Log($"Min Detection Confidence ({calculator.Calculator}) = {minDetectionConfidence}");
       }
 
       using (var validatedGraphConfig = new ValidatedGraphConfig())
       {
-        var status = validatedGraphConfig.Initialize(config);
-
-        if (!status.Ok()) { return status; }
-
-        return calculatorGraph.Initialize(config);
+        validatedGraphConfig.Initialize(config);
+        calculatorGraph.Initialize(config);
       }
     }
 
-    private SidePacket BuildSidePacket(ImageSource imageSource)
+    private PacketMap BuildSidePacket(ImageSource imageSource)
     {
-      var sidePacket = new SidePacket();
+      var sidePacket = new PacketMap();
 
       SetImageTransformationOptions(sidePacket, imageSource);
-      sidePacket.Emplace("model_type", new IntPacket((int)modelType));
+      sidePacket.Emplace("model_type", Packet.CreateInt((int)modelType));
 
-      Logger.LogInfo(TAG, $"Model Selection = {modelType}");
+      Debug.Log($"Model Selection = {modelType}");
 
       return sidePacket;
     }

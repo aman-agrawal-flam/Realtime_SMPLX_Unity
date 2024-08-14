@@ -58,7 +58,7 @@ public class UnitySocketClient_Auto : MonoBehaviour
   private byte[] takeAPicture()
   {
     Texture2D camTex = new Texture2D(camTexture.textureWidth, camTexture.textureHeight, TextureFormat.RGB24, false);
-    camTex.SetPixels(camTexture.GetPixels);
+    // camTex.SetPixels(camTexture.GetPixels);
     camTex.Apply();
     return ImageConversion.EncodeToJPG(camTex);
   }

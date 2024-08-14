@@ -8,7 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Mediapipe.Unity.FaceDetection
+namespace Mediapipe.Unity.Sample.FaceDetection
 {
   public class FaceDetectionSolution : ImageSourceSolution<FaceDetectionGraph>
   {
@@ -43,23 +43,17 @@ namespace Mediapipe.Unity.FaceDetection
 
     protected override IEnumerator WaitForNextValue()
     {
-      List<Detection> faceDetections = null;
+      var task = graphRunner.WaitNext();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out faceDetections, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out faceDetections, false));
-      }
-
-      _faceDetectionsAnnotationController.DrawNow(faceDetections);
+      _faceDetectionsAnnotationController.DrawNow(task.Result);
     }
 
-    private void OnFaceDetectionsOutput(object stream, OutputEventArgs<List<Detection>> eventArgs)
+    private void OnFaceDetectionsOutput(object stream, OutputStream<List<Detection>>.OutputEventArgs eventArgs)
     {
-      _faceDetectionsAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(Detection.Parser);
+      _faceDetectionsAnnotationController.DrawLater(value);
     }
   }
 }

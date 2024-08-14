@@ -8,7 +8,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace Mediapipe.Unity.IrisTracking
+namespace Mediapipe.Unity.Sample.IrisTracking
 {
   public class IrisTrackingSolution : ImageSourceSolution<IrisTrackingGraph>
   {
@@ -38,38 +38,34 @@ namespace Mediapipe.Unity.IrisTracking
 
     protected override IEnumerator WaitForNextValue()
     {
-      List<Detection> faceDetections = null;
-      NormalizedRect faceRect = null;
-      NormalizedLandmarkList faceLandmarksWithIris = null;
+      var task = graphRunner.WaitNext();
+      yield return new WaitUntil(() => task.IsCompleted);
 
-      if (runningMode == RunningMode.Sync)
-      {
-        var _ = graphRunner.TryGetNext(out faceDetections, out faceRect, out faceLandmarksWithIris, true);
-      }
-      else if (runningMode == RunningMode.NonBlockingSync)
-      {
-        yield return new WaitUntil(() => graphRunner.TryGetNext(out faceDetections, out faceRect, out faceLandmarksWithIris, false));
-      }
-
-      _faceDetectionsAnnotationController.DrawNow(faceDetections);
-      _faceRectAnnotationController.DrawNow(faceRect);
-      _faceLandmarksWithIrisAnnotationController.DrawNow(faceLandmarksWithIris);
+      var result = task.Result;
+      _faceDetectionsAnnotationController.DrawNow(result.faceDetections);
+      _faceRectAnnotationController.DrawNow(result.faceRect);
+      _faceLandmarksWithIrisAnnotationController.DrawNow(result.faceLandmarksWithIris);
     }
 
-    private void OnFaceDetectionsOutput(object stream, OutputEventArgs<List<Detection>> eventArgs)
+    private void OnFaceDetectionsOutput(object stream, OutputStream<List<Detection>>.OutputEventArgs eventArgs)
     {
-      _faceDetectionsAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(Detection.Parser);
+      _faceDetectionsAnnotationController.DrawLater(value);
     }
 
-    private void OnFaceRectOutput(object stream, OutputEventArgs<NormalizedRect> eventArgs)
+    private void OnFaceRectOutput(object stream, OutputStream<NormalizedRect>.OutputEventArgs eventArgs)
     {
-      _faceRectAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedRect.Parser);
+      _faceRectAnnotationController.DrawLater(value);
     }
 
-    private void OnFaceLandmarksWithIrisOutput(object stream, OutputEventArgs<NormalizedLandmarkList> eventArgs)
+    private void OnFaceLandmarksWithIrisOutput(object stream, OutputStream<NormalizedLandmarkList>.OutputEventArgs eventArgs)
     {
-      _faceLandmarksWithIrisAnnotationController.DrawLater(eventArgs.value);
+      var packet = eventArgs.packet;
+      var value = packet == null ? default : packet.Get(NormalizedLandmarkList.Parser);
+      _faceLandmarksWithIrisAnnotationController.DrawLater(value);
     }
-
   }
 }
